@@ -52,6 +52,7 @@ class ICBHIDataset(Dataset):
 
         filenames = os.listdir(data_folder)
         filenames =set([f.strip().split('.')[0] for f in filenames if '.wav' in f or '.txt' in f])
+
         for f in filenames:
             f += '.wav'
             # get the total number of devices from original dataset (icbhi dataset has 4 stethoscope devices)
@@ -74,16 +75,16 @@ class ICBHIDataset(Dataset):
         meta_file['chest_location'].replace({'Tc':0, 'Al':1, 'Ar':2, 'Pl':3, 'Pr':4, 'Ll':5, 'Lr':6}, inplace=True)
         for f in filenames:
             pat_idx = int(f.strip().split('_')[0])
-            info = list(meta_file.loc[pat_idx])
+            if pat_idx in meta_file.index:
+              info = list(meta_file.loc[pat_idx])
+            else:
+              info = [72.0, 'F', 27.8, np.nan, np.nan, 2]
             info[1] = 0 if info[1] == 'M' else 1
-
             info = np.array(info)
             for idx in np.argwhere(np.isnan(info)):
                 info[idx] = -1
-
             self.file_to_metadata[f] = torch.tensor(np.append(info, self.file_to_device[f.strip()]))
         # ==========================================================================
-
         # ==========================================================================
         """ train-test split based on train_flag and test_fold """
         if test_fold in ['0', '1', '2', '3', '4']:  # from RespireNet, 80-20% split
@@ -147,6 +148,9 @@ class ICBHIDataset(Dataset):
         self.cycle_list = []
         self.filename_to_label = {}
         self.classwise_cycle_list = [[] for _ in range(args.n_cls)]
+        self.files = []
+        self.starts = []
+        self.ends = []
 
         # ==========================================================================
         """ extract individual cycles by librosa or torchaudio """
@@ -161,13 +165,13 @@ class ICBHIDataset(Dataset):
             sample_data = get_individual_cycles_torchaudio(args, annotation_dict[filename], self.file_to_metadata[filename], data_folder, filename, args.sample_rate, args.n_cls)
 
             # cycles_with_labels: [(audio_chunk, label, metadata), (...)]
-            cycles_with_labels = [(data[0], data[1], self.file_to_metadata[filename]) for data in sample_data]
+            cycles_with_labels = [(data[0], data[1], self.file_to_metadata[filename], filename, data[2], data[3]) for data in sample_data]
 
             self.cycle_list.extend(cycles_with_labels)
             for d in cycles_with_labels:
                 # {filename: [label for cycle 1, ...]}
                 self.filename_to_label[filename].append(d[1])
-                self.classwise_cycle_list[d[1]].append(d)
+                self.classwise_cycle_list[d[1]].append(d[:3])
                 
         # concatenation based augmentation scheme from "RespireNet" paper..
         # TODO: how to decide the meta information of generated cycles
@@ -183,6 +187,10 @@ class ICBHIDataset(Dataset):
 
             # "SCL" version
             self.audio_data.append(sample)
+            self.files.append(sample[3])
+            self.starts.append(sample[4])
+            self.ends.append(sample[5])
+
         # ==========================================================================
 
         self.class_nums = np.zeros(args.n_cls)
@@ -252,6 +260,9 @@ class ICBHIDataset(Dataset):
 
     def __getitem__(self, index):
         audio_images, label, metadata = self.audio_images[index][0], self.audio_images[index][1], self.metadata[index]
+        file1 = self.files[index]
+        _start1 = self.starts[index]
+        _end1 = self.ends[index]
 
         if self.args.raw_augment and self.train_flag and not self.mean_std:
             aug_idx = random.randint(0, self.args.raw_augment)
@@ -262,7 +273,7 @@ class ICBHIDataset(Dataset):
         if self.transform is not None:
             audio_image = self.transform(audio_image)
         
-        return audio_image, label, metadata
+        return audio_image, label, metadata, file1, _start1, _end1
 
     def __len__(self):
         return len(self.audio_data)
