@@ -246,15 +246,15 @@ def get_individual_cycles_torchaudio(args, recording_annotations, metadata, data
         if args.class_split == 'lungsound':
             crackles = row['Crackles']
             wheezes = row['Wheezes']            
-            sample_data.append((audio_chunk, _get_lungsound_label(crackles, wheezes, n_cls)))
+            sample_data.append((audio_chunk, _get_lungsound_label(crackles, wheezes, n_cls), start, end))
         elif args.class_split == 'diagnosis':
             disease = row['Disease']            
             sample_data.append((audio_chunk, _get_diagnosis_label(disease, n_cls)))
 
     padded_sample_data = []
-    for data, label in sample_data:
+    for data, label, _start1, _end1 in sample_data:
         data = cut_pad_sample_torchaudio(data, args)
-        padded_sample_data.append((data, label))
+        padded_sample_data.append((data, label, _start1, _end1))
 
     return padded_sample_data
 
